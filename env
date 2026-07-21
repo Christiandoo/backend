@@ -1,0 +1,4 @@
+# NEXT_PUBLIC_API_URL="https://103.150.101.123.nip.io"
+NEXT_PUBLIC_API_URL="http://localhost:8000"
+NEXT_PUBLIC_SUPABASE_URL="https://etjaiurnwxgwzlzesslo.supabase.co"
+NEXT_PUBLIC_SUPABASE_ANON_KEY="eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImV0amFpdXJud3hnd3psemVzc2xvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODMzNDI3MDIsImV4cCI6MjA5ODkxODcwMn0.oZeczDixpHUwQqsMNn5zyn4od7xkOfDVkJdveYafpt8"
