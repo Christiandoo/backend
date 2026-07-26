@@ -1,6 +1,7 @@
 import io
 import os
 import json
+import asyncio
 import pandas as pd
 from collections import defaultdict
 from fastapi import APIRouter, UploadFile, File, HTTPException
@@ -244,8 +245,22 @@ async def analyze_batch_stream(file: UploadFile = File(...)):
             }
             # Kirim data per baris dalam format JSON dipisah newline (\n)
             yield json.dumps(item) + "\n"
+            
+            # Memberikan kesempatan pada asyncio event-loop untuk langsung mengirim/flush chunk data ke client
+            await asyncio.sleep(0)
 
-    return StreamingResponse(event_generator(), media_type="application/x-ndjson")
+    # Tambahkan header antisipasi agar reverse-proxy tidak menahan (buffering) response stream
+    headers = {
+        "Cache-Control": "no-cache",
+        "X-Accel-Buffering": "no",
+        "Connection": "keep-alive",
+    }
+
+    return StreamingResponse(
+        event_generator(), 
+        media_type="application/x-ndjson",
+        headers=headers
+    )
 
 
 # ─── 4. PERBANDINGAN ALGORITMA ────────────────────────────────────────────────
