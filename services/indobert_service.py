@@ -3,7 +3,15 @@ import numpy as np
 from pathlib import Path
 from transformers import BertTokenizer, BertForSequenceClassification
 
-MODEL_DIR = Path(__file__).resolve().parent.parent / "model" / "indobert"
+# Fallback ke repository IndoBERT di Hugging Face jika folder lokal tidak ditemukan
+HF_MODEL_NAME = "indobenchmark/indobert-base-p1"
+LOCAL_MODEL_DIR = Path(__file__).resolve().parent.parent / "model" / "indobert"
+
+# Pilih path lokal jika direktori ada, jika tidak gunakan Hugging Face
+if LOCAL_MODEL_DIR.exists():
+    MODEL_PATH = str(LOCAL_MODEL_DIR)
+else:
+    MODEL_PATH = HF_MODEL_NAME
 
 # ─── Label mapping ────────────────────────────────────────────────────────────
 # Ditemukan dari testing model runtime:
@@ -17,8 +25,8 @@ _LABEL_MAP = {
 # ─── Load model & tokenizer sekali saat startup (singleton) ───────────────────
 _device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-_tokenizer = BertTokenizer.from_pretrained(str(MODEL_DIR))
-_model = BertForSequenceClassification.from_pretrained(str(MODEL_DIR))
+_tokenizer = BertTokenizer.from_pretrained(MODEL_PATH)
+_model = BertForSequenceClassification.from_pretrained(MODEL_PATH)
 _model.to(_device)
 _model.eval()
 
