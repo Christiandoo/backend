@@ -1,9 +1,2 @@
-[phases.setup]
-nixPkgs = ["python311"]
-
 [phases.install]
-cmds = [
-  "python -m venv /opt/venv",
-  ". /opt/venv/bin/activate",
-  "pip install --no-cache-dir -r requirements.txt"
-]
+cmds = ["pip install --no-cache-dir -r requirements.txt"]
