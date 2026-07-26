@@ -17,7 +17,11 @@ from schemas import (
     ModelResult,
     PreprocessingDetail,
 )
-from services.preprocessing import preprocess_for_svm, preprocess_for_indobert
+from services.preprocessing import (
+    get_full_preprocessing_steps,
+    preprocess_for_svm,
+    preprocess_for_indobert,
+)
 from services.svm_service import predict_svm
 from services.indobert_service import predict_indobert
 
@@ -29,24 +33,28 @@ router = APIRouter()
     "/analyze",
     response_model=AnalyzeResponse,
     summary="Analisis sentimen satu teks",
-    description="Menerima satu teks review dan mengembalikan prediksi sentimen dari model SVM dan IndoBERT beserta detail preprocessing.",
+    description="Menerima satu teks review dan mengembalikan prediksi sentimen dari model SVM dan IndoBERT beserta detail preprocessing 5 langkah.",
 )
 async def analyze(request: AnalyzeRequest):
     original = request.text
 
-    # --- Preprocessing ---
-    after_cleaning, after_stopword = preprocess_for_svm(original)
-    indobert_input = preprocess_for_indobert(original)  # cleaning saja
+    # --- Preprocessing 5 Langkah ---
+    prep = get_full_preprocessing_steps(original)
 
     # --- Inference ---
-    svm_result = predict_svm(after_stopword)
-    indobert_result = predict_indobert(indobert_input)
+    # SVM menggunakan teks hasil stopword/stemmed
+    svm_result = predict_svm(prep["stopwords"])
+    # IndoBERT menggunakan teks hasil normalisasi
+    indobert_result = predict_indobert(prep["normalized"])
 
     return AnalyzeResponse(
         preprocessing=PreprocessingDetail(
-            original=original,
-            after_cleaning=after_cleaning,
-            after_stopword=after_stopword,
+            original=prep["original"],
+            cleaning=prep["cleaning"],
+            normalized=prep["normalized"],
+            stopwords=prep["stopwords"],
+            stemmed=prep["stemmed"],
+            tokens=prep["tokens"],
         ),
         svm=ModelResult(**svm_result),
         indobert=ModelResult(**indobert_result),

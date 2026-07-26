@@ -1,5 +1,5 @@
 from pydantic import BaseModel, Field
-from typing import Optional
+from typing import Optional, List
 
 
 # ─── Request schemas ───────────────────────────────────────────────────────────
@@ -24,14 +24,17 @@ class WordWeight(BaseModel):
 class ModelResult(BaseModel):
     label: str
     confidence: float
-    word_weights: Optional[list[WordWeight]] = None
-    tokens: Optional[list[str]] = None
+    word_weights: Optional[List[WordWeight]] = None
+    tokens: Optional[List[str]] = None
 
 
 class PreprocessingDetail(BaseModel):
     original: str
-    after_cleaning: str
-    after_stopword: str
+    cleaning: str
+    normalized: str
+    stopwords: str
+    stemmed: str
+    tokens: List[str]
 
 
 class AnalyzeResponse(BaseModel):
@@ -73,9 +76,7 @@ class ConfusionMatrix(BaseModel):
 class BatchAnalyzeResponse(BaseModel):
     total: int
     has_labels: bool
-    results: list[BatchResultItem]
+    results: List[BatchResultItem]
     summary: BatchSummary
     accuracy: Optional[BatchAccuracy] = None
     confusion_matrix: Optional[dict[str, ConfusionMatrix]] = None
-
-    
