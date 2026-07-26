@@ -2,8 +2,11 @@ import torch
 import numpy as np
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
 
+# ─── Optimasi CPU Threads untuk Railway ───────────────────────────────────────
+# Mencegah CPU throttling/context-switching di environment server terbatas
+torch.set_num_threads(2)
+
 # ─── Configuration ────────────────────────────────────────────────────────────
-# Dipastikan nama repositori tepat (indobert, bukan indoberet)
 HF_MODEL_NAME = "itsmedo/indoberet"
 
 # ─── Label mapping ────────────────────────────────────────────────────────────
@@ -15,7 +18,6 @@ _LABEL_MAP = {
 # ─── Load model & tokenizer sekali saat startup (singleton) ───────────────────
 _device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-# Mengunduh tokenizer dan model dari Hugging Face
 _tokenizer = AutoTokenizer.from_pretrained(HF_MODEL_NAME)
 _model = AutoModelForSequenceClassification.from_pretrained(HF_MODEL_NAME)
 
@@ -36,15 +38,15 @@ def predict_indobert(text_after_cleaning: str) -> dict:
             "tokens": [],
         }
 
-    # 2. Proses Tokenisasi
+    # 2. Proses Tokenisasi (max_length diturunkan ke 128 agar jauh lebih cepat di CPU)
     inputs = _tokenizer(
         text_after_cleaning,
         return_tensors="pt",
         truncation=True,
-        max_length=512,
+        max_length=128,  # <--- OPTIMASI UTAMA: Turunkan dari 512 ke 128
     )
-    
-    # 3. Ekstrak token & filter token khusus ([CLS], [SEP], [PAD]) untuk UI frontend
+
+    # 3. Ekstrak token & filter token khusus ([CLS], [SEP], [PAD])
     raw_tokens = _tokenizer.convert_ids_to_tokens(inputs["input_ids"][0])
     clean_tokens = [
         token for token in raw_tokens 
