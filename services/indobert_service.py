@@ -3,7 +3,7 @@ import numpy as np
 from transformers import AutoTokenizer, AutoModelForSequenceClassification
 
 # ─── Configuration ────────────────────────────────────────────────────────────
-# Path repositori model kamu yang sudah valid di Hugging Face
+# Dipastikan nama repositori tepat (indobert, bukan indoberet)
 HF_MODEL_NAME = "itsmedo/indoberet"
 
 # ─── Label mapping ────────────────────────────────────────────────────────────
@@ -15,7 +15,7 @@ _LABEL_MAP = {
 # ─── Load model & tokenizer sekali saat startup (singleton) ───────────────────
 _device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-# Menggunakan AutoClass agar kompatibel penuh dengan config di Hugging Face
+# Mengunduh tokenizer dan model dari Hugging Face
 _tokenizer = AutoTokenizer.from_pretrained(HF_MODEL_NAME)
 _model = AutoModelForSequenceClassification.from_pretrained(HF_MODEL_NAME)
 
@@ -28,7 +28,7 @@ def predict_indobert(text_after_cleaning: str) -> dict:
     Menerima teks setelah cleaning.
     Return: { label: str, confidence: float, tokens: list }
     """
-    # Validasi input kosong/hanya whitespace
+    # 1. Validasi input kosong atau hanya spasi
     if not text_after_cleaning or not text_after_cleaning.strip():
         return {
             "label": "netral",
@@ -36,7 +36,7 @@ def predict_indobert(text_after_cleaning: str) -> dict:
             "tokens": [],
         }
 
-    # Process tokenization (cukup 1x pemanggilan)
+    # 2. Proses Tokenisasi
     inputs = _tokenizer(
         text_after_cleaning,
         return_tensors="pt",
@@ -44,27 +44,31 @@ def predict_indobert(text_after_cleaning: str) -> dict:
         max_length=512,
     )
     
-    # Ambil daftar token langsung dari hasil tokenizer tanpa memproses ulang
-    tokens = _tokenizer.convert_ids_to_tokens(inputs["input_ids"][0])
+    # 3. Ekstrak token & filter token khusus ([CLS], [SEP], [PAD]) untuk UI frontend
+    raw_tokens = _tokenizer.convert_ids_to_tokens(inputs["input_ids"][0])
+    clean_tokens = [
+        token for token in raw_tokens 
+        if token not in (_tokenizer.cls_token, _tokenizer.sep_token, _tokenizer.pad_token)
+    ]
 
-    # Pindahkan tensor ke device (CPU/GPU)
+    # 4. Pindahkan input tensor ke device (CPU/GPU)
     inputs_on_device = {k: v.to(_device) for k, v in inputs.items()}
 
-    # Inference tanpa menghitung gradient
+    # 5. Inference (Prediksi)
     with torch.no_grad():
         outputs = _model(**inputs_on_device)
         logits = outputs.logits  # shape: (1, num_labels)
 
-    # Hitung probabilitas menggunakan softmax
+    # 6. Hitung probabilitas dengan Softmax
     proba = torch.softmax(logits, dim=-1).cpu().numpy()[0]
     pred_idx = int(np.argmax(proba))
     confidence = float(proba[pred_idx])
 
-    # Ambil label berdasarkan mapping
+    # 7. Pemetaan ke label teks
     label = _LABEL_MAP.get(pred_idx, str(pred_idx))
 
     return {
         "label": str(label),
         "confidence": round(confidence, 4),
-        "tokens": tokens,
+        "tokens": clean_tokens,
     }
