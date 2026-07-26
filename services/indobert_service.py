@@ -3,20 +3,17 @@ import numpy as np
 from pathlib import Path
 from transformers import BertTokenizer, BertForSequenceClassification
 
-# Fallback ke repository IndoBERT di Hugging Face jika folder lokal tidak ditemukan
+# Fallback ke repository IndoBERT di Hugging Face jika model lokal tidak lengkap
 HF_MODEL_NAME = "indobenchmark/indobert-base-p1"
 LOCAL_MODEL_DIR = Path(__file__).resolve().parent.parent / "model" / "indobert"
 
-# Pilih path lokal jika direktori ada, jika tidak gunakan Hugging Face
-if LOCAL_MODEL_DIR.exists():
+# Periksa apakah file config.json benar-benar ada di dalam folder lokal
+if (LOCAL_MODEL_DIR / "config.json").exists():
     MODEL_PATH = str(LOCAL_MODEL_DIR)
 else:
     MODEL_PATH = HF_MODEL_NAME
 
 # ─── Label mapping ────────────────────────────────────────────────────────────
-# Ditemukan dari testing model runtime:
-# Index 0 -> Sentimen Buruk (negatif)
-# Index 1 -> Sentimen Bagus (positif)
 _LABEL_MAP = {
     0: "negatif",
     1: "positif",
