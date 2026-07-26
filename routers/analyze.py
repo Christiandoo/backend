@@ -1,8 +1,10 @@
 import io
 import os
+import json
 import pandas as pd
 from collections import defaultdict
 from fastapi import APIRouter, UploadFile, File, HTTPException
+from fastapi.responses import StreamingResponse
 
 from schemas import (
     AnalyzeRequest,
@@ -21,6 +23,7 @@ from services.indobert_service import predict_indobert
 router = APIRouter()
 
 
+# ─── 1. ANALISIS SINGLE TEXT ──────────────────────────────────────────────────
 @router.post(
     "/analyze",
     response_model=AnalyzeResponse,
@@ -49,17 +52,17 @@ async def analyze(request: AnalyzeRequest):
     )
 
 
+# ─── 2. ANALISIS BATCH STANDARD (NON-STREAMING) ─────────────────────────────
 @router.post(
     "/analyze-batch",
     response_model=BatchAnalyzeResponse,
-    summary="Analisis sentimen batch dari file CSV",
+    summary="Analisis sentimen batch dari file CSV (Standard JSON)",
     description=(
         "Upload file CSV dengan kolom `content` (wajib) dan `sentiment` (opsional). "
         "Jika kolom `sentiment` ada, accuracy akan dihitung."
     ),
 )
 async def analyze_batch(file: UploadFile = File(...)):
-    # ─── Validasi tipe file ───────────────────────────────────────────────────
     if not file.filename.endswith(".csv"):
         raise HTTPException(status_code=400, detail="File harus berformat CSV.")
 
@@ -91,14 +94,11 @@ async def analyze_batch(file: UploadFile = File(...)):
         text = str(row["content"]) if pd.notna(row["content"]) else ""
         actual = str(row["sentiment"]).strip() if has_labels and pd.notna(row.get("sentiment")) else None
 
-        # Truncate to 512 chars
         text = text[:512]
 
-        # Preprocessing
         _, after_stopword = preprocess_for_svm(text)
         indobert_input = preprocess_for_indobert(text)
 
-        # Inference
         svm_res = predict_svm(after_stopword)
         indobert_res = predict_indobert(indobert_input)
 
@@ -120,7 +120,6 @@ async def analyze_batch(file: UploadFile = File(...)):
             if indobert_norm == actual_norm:
                 indobert_correct += 1
             
-            # Update confusion matrix
             is_actual_pos = (actual_norm == "positif")
             
             is_svm_pos = (svm_norm == "positif")
@@ -183,9 +182,73 @@ async def analyze_batch(file: UploadFile = File(...)):
     )
 
 
-# ==============================================================================
-# ENDPOINT PERBANDINGAN ALGORITMA (SVM VS INDOBERT)
-# ==============================================================================
+# ─── 3. ANALISIS BATCH STREAMING (NDJSON / SSE) ───────────────────────────────
+@router.post(
+    "/analyze-batch-stream",
+    summary="Analisis sentimen batch via streaming",
+    description="Mengirimkan hasil prediksi baris demi baris secara real-time via NDJSON streaming.",
+)
+async def analyze_batch_stream(file: UploadFile = File(...)):
+    if not file.filename.endswith(".csv"):
+        raise HTTPException(status_code=400, detail="File harus berformat CSV.")
+
+    content = await file.read()
+    try:
+        df = pd.read_csv(io.BytesIO(content))
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Gagal membaca CSV: {str(e)}")
+
+    if "content" not in df.columns:
+        raise HTTPException(
+            status_code=422,
+            detail="Kolom `content` tidak ditemukan dalam CSV. Pastikan header bernama `content`.",
+        )
+
+    has_labels = "sentiment" in df.columns
+
+    async def event_generator():
+        total_rows = len(df)
+        for idx, row in df.iterrows():
+            text = str(row["content"]) if pd.notna(row["content"]) else ""
+            actual = str(row["sentiment"]).strip() if has_labels and pd.notna(row.get("sentiment")) else None
+
+            text = text[:512]
+
+            _, after_stopword = preprocess_for_svm(text)
+            indobert_input = preprocess_for_indobert(text)
+
+            svm_res = predict_svm(after_stopword)
+            indobert_res = predict_indobert(indobert_input)
+
+            svm_reason = None
+            if svm_res.get("word_weights") and len(svm_res["word_weights"]) > 0:
+                top = svm_res["word_weights"][0]
+                svm_reason = f"Kata '{top['word']}' sangat memengaruhi ({'+' if top['weight']>0 else ''}{top['weight']:.2f})"
+
+            indo_reason = None
+            if indobert_res.get("tokens") and len(indobert_res["tokens"]) > 0:
+                tokens = indobert_res["tokens"]
+                indo_reason = f"Tokens: {' '.join(tokens[:5])}{'...' if len(tokens)>5 else ''}"
+
+            item = {
+                "index": idx + 1,
+                "total": total_rows,
+                "content": text,
+                "svm": svm_res.get("label"),
+                "confidence_svm": svm_res.get("confidence"),
+                "svm_reason": svm_reason,
+                "indobert": indobert_res.get("label"),
+                "confidence_indobert": indobert_res.get("confidence"),
+                "indobert_reason": indo_reason,
+                "actual": actual,
+            }
+            # Kirim data per baris dalam format JSON dipisah newline (\n)
+            yield json.dumps(item) + "\n"
+
+    return StreamingResponse(event_generator(), media_type="application/x-ndjson")
+
+
+# ─── 4. PERBANDINGAN ALGORITMA ────────────────────────────────────────────────
 @router.get(
     "/comparison",
     summary="Mendapatkan data perbandingan algoritma SVM vs IndoBERT",
@@ -213,8 +276,8 @@ async def get_algorithm_comparison():
             "confusion_matrix": {
                 "labels": labels,
                 "matrix": [
-                    [425, 75],  # Actual Positif -> [Pred Positif, Pred Negatif]
-                    [73, 427],  # Actual Negatif -> [Pred Positif, Pred Negatif]
+                    [425, 75],
+                    [73, 427],
                 ],
             },
         },
@@ -230,8 +293,8 @@ async def get_algorithm_comparison():
             "confusion_matrix": {
                 "labels": labels,
                 "matrix": [
-                    [472, 28],  # Actual Positif -> [Pred Positif, Pred Negatif]
-                    [30, 470],  # Actual Negatif -> [Pred Positif, Pred Negatif]
+                    [472, 28],
+                    [30, 470],
                 ],
             },
         },
@@ -244,16 +307,13 @@ async def get_algorithm_comparison():
     }
 
 
-# ==============================================================================
-# TAMBAHAN BARU: ENDPOINT MEMBACA HASIL SCRAPING CSV
-# ==============================================================================
+# ─── 5. SCRAPED DATA PREVIEW ──────────────────────────────────────────────────
 @router.get(
     "/scraped-data",
     summary="Mendapatkan preview data ulasan Edlink hasil scraping",
     description="Membaca file edlink_scraped_reviews_full.csv dan mengembalikan statistik beserta list ulasan.",
 )
 async def get_scraped_data(limit: int = 500):
-    # Cari file CSV di folder root backend
     csv_file_path = os.path.join(os.getcwd(), "edlink_scraped_reviews_full.csv")
     
     if not os.path.exists(csv_file_path):
@@ -264,15 +324,12 @@ async def get_scraped_data(limit: int = 500):
 
     try:
         df = pd.read_csv(csv_file_path)
-        
-        # Bersihkan NaN agar aman di-convert ke JSON
         df = df.fillna("")
         
         total_data = len(df)
         positif_count = int((df['sentiment'] == 'positif').sum()) if 'sentiment' in df.columns else 0
         negatif_count = int((df['sentiment'] == 'negatif').sum()) if 'sentiment' in df.columns else 0
         
-        # Ambil sampel data untuk tabel frontend
         preview = df.head(limit).to_dict(orient="records")
         
         return {
